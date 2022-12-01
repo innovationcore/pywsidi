@@ -6,6 +6,44 @@ import base64
 import io
 from PIL import Image, ImageDraw
 
+def getPadBytesString(pad_char, input_text):
+
+    input_str = base64.b64decode(input_text).decode('utf-8')
+
+    input_byte = input_text.encode('utf-8')
+
+    output_string = ''
+    for n in range(len(input_str)):
+         output_string += pad_char
+
+    replace_byte = base64.b64encode(output_string.encode('utf-8'))
+    return replace_byte, input_byte
+
+def getPadBytesImage(input_text, x_size, y_size):
+
+    last_char = input_text[-1]
+
+    input_text = input_text.replace('\n','')
+
+    new_image = generate_image(x_size, y_size)
+
+    while(len(new_image) > len(input_text)):
+        x_size = x_size - 10
+        y_size = y_size - 10
+        new_image = generate_image(x_size, y_size)
+
+    for n in range((len(input_text) - len(new_image))):
+        new_image += '='
+
+    output_string = base64Split(new_image)
+    # if if input_text ends with \n replace it
+    if last_char == '\n':
+        output_string = output_string + '\n'
+
+    replace_byte = output_string.encode('utf-8')
+
+    return replace_byte
+
 def generate_image(x, y, image_text1=None, image_text2=None):
     img = Image.new('RGB', (x, y), color=(73, 109, 137))
 
@@ -35,6 +73,7 @@ def base64Split(a_string):
     return payload[:-1]
 
 def parseXMLheader(header_data, image_text1=None, image_text2=None):
+
     # create element tree object
     root = ET.fromstring(header_data)
 
@@ -43,20 +82,22 @@ def parseXMLheader(header_data, image_text1=None, image_text2=None):
         if data_object.attrib['ObjectType'] == 'DPUfsImport':
             for child in data_object:
                 if (child.attrib['Name'] == 'PIM_DP_UFS_BARCODE'):
-                    original_barcode = base64.b64decode(child.text).decode('utf-8')
-                    new_barcode = ''
-                    for n in range(len(original_barcode)):
-                        new_barcode += '_'
 
-                    child.text = base64.b64encode(new_barcode.encode('utf-8'))
+                    # start new method
+                    replace_byte, input_byte = getPadBytesString('-', child.text)
+                    header_data = header_data.replace(input_byte, replace_byte)
+                    # end new method
 
                 if (child.attrib['Name'] == 'DICOM_DEVICE_SERIAL_NUMBER'):
+
                     original_sn = child.text
                     new_sn = ''
                     for n in range(len(original_sn)):
                         new_sn += '_'
 
-                    child.text = new_sn
+                    # start new method
+                    header_data = header_data.replace(original_sn.encode('utf-8'), new_sn.encode('utf-8'))
+                    # end new method
 
         if data_object.attrib['ObjectType'] == 'DPScannedImage':
             #print('data_object attrib ' + str(data_object.attrib))
@@ -76,35 +117,22 @@ def parseXMLheader(header_data, image_text1=None, image_text2=None):
                         isMacro = True
 
                 if(isLabel and (child.attrib['Name'] == 'PIM_DP_IMAGE_DATA')):
-                    label_image = base64.b64decode(child.text)
-                    base64_bytes = base64.b64encode(label_image)
-                    base64_string = base64_bytes.decode("utf-8")
 
-                    new_image = generate_image(796, 826, image_text1=None, image_text2=None)
-                    for n in range((len(base64_string) - len(new_image))):
-                        new_image += '='
+                    # start new method
+                    replace_byte = getPadBytesImage(child.text, 796, 826)
+                    header_data = header_data.replace(child.text.encode('utf-8'), replace_byte)
+                    # end new method
 
-                    child.text = base64Split(new_image)
 
-                if(isMacro and (child.attrib['Name'] == 'PIM_DP_IMAGE_DATA')):
-                    macro_image = base64.b64decode(child.text)
+                #if(isMacro and (child.attrib['Name'] == 'PIM_DP_IMAGE_DATA')):
 
-                    base64_bytes = base64.b64encode(macro_image)
-                    base64_string = base64_bytes.decode("utf-8")
+                    # start new method
+                    replace_byte = getPadBytesImage(child.text, 1688, 826)
+                    header_data = header_data.replace(child.text.encode('utf-8'), replace_byte)
+                    # end new method
 
-                    new_image = generate_image(1688, 826, image_text1=None, image_text2=None)
-                    for n in range((len(base64_string) - len(new_image))):
-                        new_image += '='
-
-                    child.text = base64Split(new_image)
-
-    xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
-    search_string = 'PMSVR="IString"/><Attribute Name="PIIM_DP_SCANNER_CALIBRATION_STATUS"'
-    replace_string = 'PMSVR="IString"></Attribute><Attribute Name="PIIM_DP_SCANNER_CALIBRATION_STATUS"'
-
-    output = xml_declaration + ET.tostring(root, encoding='utf-8', method='xml', pretty_print=True).decode('utf-8')
-    output = output.replace(search_string, replace_string)
-    return output.encode('utf-8')
+    #return new_header
+    return header_data
 
 def getisyntaxheader(file_path):
 
